@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>合并剧目：{{ work.title }}</h1>
+{% if message %}<div class="notice">{{ message }}</div>{% endif %}
+<div class="notice">合并后，该剧目的视频版本、专家评分和别名会迁移到主剧目；当前剧目会从数据库删除。</div>
+<section class="panel">
+  <table>
+    <tr><th>待合并剧目</th><td>{{ work.title }}</td></tr>
+    <tr><th>视频版本</th><td>{{ versions_count }}</td></tr>
+    <tr><th>专家评分</th><td>{{ reviews_count }}</td></tr>
+  </table>
+  <form method="post" style="margin-top: 16px;" data-confirm="确认合并这个剧目吗？合并后，当前剧目会从数据库删除，只保留主剧目。">
+    <label>合并到主剧目
+      <select name="target_work_id" required>
+        <option value="">请选择主剧目</option>
+        {% for target in targets %}
+          <option value="{{ target.id }}">{{ target.title }} · {{ target.ethnicity }} · {{ target.form }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions">
+      <button class="button primary" type="submit">确认合并并删除当前剧目</button>
+      <a class="button" href="{{ url_for('work_detail', work_id=work.id) }}">返回</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

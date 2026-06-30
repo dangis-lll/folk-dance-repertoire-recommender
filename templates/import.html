@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>批量导入</h1>
+<div class="notice">这是内部建库工具。适合一次性导入整理好的表格文件；平时给老师使用时，可以直接用“添加视频”。</div>
+<div class="notice">支持字段：title, aliases, ethnicity, region, danceType, form, genderTendency, platform, url, videoTitle, uploader, performer, thumbnailUrl, notes。</div>
+<form class="panel" method="post" enctype="multipart/form-data">
+  <label>表格文件 CSV<input name="file" type="file" accept=".csv" required></label>
+  <div class="actions"><button class="button primary" type="submit">开始导入</button></div>
+</form>
+{% if imported is not none %}
+  <div class="notice">导入完成，新增剧目 {{ imported }} 个。视频链接已自动识别并去重。</div>
+{% endif %}
+{% endblock %}

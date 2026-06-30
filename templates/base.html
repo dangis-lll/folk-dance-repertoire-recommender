@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "民族民间舞剧目系统" }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+  <header>
+    <div class="brand"><a href="{{ url_for('works') }}">中国民族民间舞剧目库</a></div>
+    <nav>
+      <a href="{{ url_for('works') }}">剧目库</a>
+      <a href="{{ url_for('new_work') }}">新增剧目</a>
+      <a href="{{ url_for('recommend_page') }}">帮我选剧目</a>
+      <a href="{{ url_for('discover_page') }}">{{ '搜视频入库' if app_mode == 'internal' else '添加视频' }}</a>
+      <a href="{{ url_for('quality_dashboard') }}">资料检查</a>
+      {% if app_mode == 'internal' %}<a href="{{ url_for('import_page') }}">批量导入</a>{% endif %}
+      <a href="{{ url_for('logs') }}">推荐记录</a>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

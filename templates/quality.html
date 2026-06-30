@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>资料检查</h1>
+<div class="grid">
+  <div class="card"><h3>剧目</h3><div class="score">{{ totals.works }}</div></div>
+  <div class="card"><h3>视频版本</h3><div class="score">{{ totals.videos }}</div></div>
+  <div class="card"><h3>专家评分</h3><div class="score">{{ totals.reviews }}</div></div>
+</div>
+
+<h2>可能重复的剧目</h2>
+<table>
+  <tr><th>相似名称</th><th>数量</th><th>剧目</th></tr>
+  {% for row in duplicate_groups %}
+    <tr><td>{{ row.normalized_title }}</td><td>{{ row.c }}</td><td>{{ row.titles }}</td></tr>
+  {% else %}<tr><td colspan="3">暂时没有发现明显重复。</td></tr>{% endfor %}
+</table>
+
+<h2>还没有参考视频的剧目</h2>
+<table>
+  <tr><th>剧目</th><th>民族/形式</th><th>操作</th></tr>
+  {% for w in no_video %}
+    <tr><td>{{ w.title }}</td><td>{{ w.ethnicity }} / {{ w.form }}</td><td><a href="{{ url_for('work_detail', work_id=w.id) }}">查看</a></td></tr>
+  {% else %}<tr><td colspan="3">暂无。</td></tr>{% endfor %}
+</table>
+
+<h2>还没有专家评分的剧目</h2>
+<table>
+  <tr><th>剧目</th><th>民族/形式</th><th>操作</th></tr>
+  {% for w in no_review %}
+    <tr><td>{{ w.title }}</td><td>{{ w.ethnicity }} / {{ w.form }}</td><td><a href="{{ url_for('new_review', work_id=w.id) }}">评分</a></td></tr>
+  {% else %}<tr><td colspan="3">暂无。</td></tr>{% endfor %}
+</table>
+
+<h2>资料没填完整的剧目</h2>
+<table>
+  <tr><th>剧目</th><th>民族</th><th>形式</th><th>描述</th><th>操作</th></tr>
+  {% for w in incomplete %}
+    <tr><td>{{ w.title }}</td><td>{{ w.ethnicity or '-' }}</td><td>{{ w.form or '-' }}</td><td>{{ '有' if w.description else '缺' }}</td><td><a href="{{ url_for('edit_work', work_id=w.id) }}">补全</a></td></tr>
+  {% else %}<tr><td colspan="5">暂无。</td></tr>{% endfor %}
+</table>
+
+<h2>老师评分差异较大，需要再看一遍</h2>
+<table>
+  <tr><th>剧目</th><th>民族/形式</th><th>操作</th></tr>
+  {% for w in recheck_rows %}
+    <tr><td>{{ w.title }}</td><td>{{ w.ethnicity }} / {{ w.form }}</td><td><a href="{{ url_for('work_detail', work_id=w.id) }}">查看</a></td></tr>
+  {% else %}<tr><td colspan="3">暂无。</td></tr>{% endfor %}
+</table>
+
+<h2>视频链接可能识别不完整</h2>
+<table>
+  <tr><th>剧目</th><th>平台</th><th>标题</th><th>链接</th></tr>
+  {% for v in blank_platform_id %}
+    <tr><td>{{ v.work_title }}</td><td>{{ v.platform }}</td><td>{{ v.title }}</td><td><a href="{{ v.url }}" target="_blank" rel="noreferrer">打开</a></td></tr>
+  {% else %}<tr><td colspan="4">暂无。</td></tr>{% endfor %}
+</table>
+{% endblock %}

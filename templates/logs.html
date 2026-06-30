@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="work-hero">
+  <div>
+    <div class="meta">历史案例</div>
+    <h1>推荐记录</h1>
+  </div>
+  <div class="work-actions">
+    <form method="post" action="{{ url_for('clear_logs') }}" data-confirm="确认清空全部推荐记录吗？这个操作不能恢复。">
+      <button class="button" type="submit">清空记录</button>
+    </form>
+  </div>
+</div>
+<div class="notice">这里记录每次“帮我选剧目”的输入和推荐数量，方便以后回看学生案例。</div>
+<table>
+  <tr><th>时间</th><th>当时输入的需求</th><th>推荐数量</th><th>系统理解</th></tr>
+  {% for row in rows %}
+    <tr>
+      <td>{{ row.created_at }}</td>
+      <td>{{ row.user_query }}</td>
+      <td>{{ row.recommended_count }}</td>
+      <td>
+        <details>
+          <summary>展开查看</summary>
+          <pre>{{ row.parsed_intent }}</pre>
+        </details>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4">暂无推荐记录。</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

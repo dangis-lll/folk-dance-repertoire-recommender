@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>帮我选剧目</h1>
+<form class="panel" method="post">
+  <label>输入学生条件和剧目需求
+    <textarea name="user_query" placeholder="例如：18岁女生，身高165厘米，软度中等，技巧偏弱，有三个月时间，参加艺考，需要一个不俗套、艺术表现空间较大的藏族独舞。">{{ user_query }}</textarea>
+  </label>
+  <div class="actions">
+    <button class="button primary" type="submit">开始推荐</button>
+  </div>
+</form>
+{% if result %}
+  <details>
+    <summary class="button">看看系统是怎么理解这段需求的</summary>
+    <pre>{{ result.intent_json }}</pre>
+  </details>
+  {% if result.llm_text %}
+    <div class="notice">{{ result.llm_text | replace('\n', '<br>') | safe }}</div>
+  {% endif %}
+  <h2>推荐剧目</h2>
+  {% for item in result.ranked %}
+    <article class="card">
+      <h3><a href="{{ url_for('work_detail', work_id=item.work.id) }}">{{ loop.index }}. {{ item.work.title }}</a> <span class="score">匹配度 {{ item.score }}</span></h3>
+      <div class="tags">
+        <span class="tag">{{ item.work.ethnicity }}</span>
+        <span class="tag">{{ item.work.form }}</span>
+        <span class="tag">艺考 {{ "%.1f"|format(item.avg.exam_suitability_score or 0) }}</span>
+        <span class="tag">艺术空间 {{ "%.1f"|format(item.avg.creative_space_score or 0) }}</span>
+        <span class="tag">新颖度 {{ "%.1f"|format(item.avg.originality_score or 0) }}</span>
+      </div>
+      <div class="tags">
+        <span class="tag">能力匹配 {{ "%.0f"|format((item.dimensions.ability_fit or 0) * 100) }}</span>
+        <span class="tag">时间匹配 {{ "%.0f"|format((item.dimensions.time_fit or 0) * 100) }}</span>
+        <span class="tag">用途匹配 {{ "%.0f"|format((item.dimensions.scene_fit or 0) * 100) }}</span>
+        <span class="tag">表现空间 {{ "%.0f"|format((item.dimensions.artistic_fit or 0) * 100) }}</span>
+        <span class="tag">参考视频 {{ "%.0f"|format((item.dimensions.video_fit or 0) * 100) }}</span>
+        <span class="tag">检索相关 {{ "%.0f"|format((item.dimensions.retrieval_fit or 0) * 100) }}</span>
+      </div>
+      <p>{{ item.work.description }}</p>
+      <p><strong>推荐理由：</strong>{{ "；".join(item.reasons) or "数据库评分整体匹配。" }}</p>
+      <p><strong>风险提示：</strong>{{ "；".join(item.risks) or "暂无明显风险，仍建议由专业教师复核。" }}</p>
+      <p><strong>专家摘要：</strong>{{ item.summary.summary or '-' }}</p>
+      <table>
+        <tr><th>平台</th><th>参考视频</th><th>操作</th></tr>
+        {% for v in item.versions[:3] %}
+        <tr>
+          <td>{{ v.platform }}</td>
+          <td>{{ v.title }}</td>
+          <td><a href="{{ url_for('video_view', version_id=v.id) }}">浏览</a> · <a href="{{ v.url }}" target="_blank" rel="noreferrer">跳转</a></td>
+        </tr>
+        {% endfor %}
+      </table>
+      <form class="toolbar" method="post" action="{{ url_for('recommendation_feedback') }}">
+        <input type="hidden" name="log_id" value="{{ result.log_id }}">
+        <input type="hidden" name="work_id" value="{{ item.work.id }}">
+        <button class="button" name="rating" value="fit" type="submit">合适</button>
+        <button class="button" name="rating" value="not_fit" type="submit">不合适</button>
+        <button class="button" name="rating" value="too_hard" type="submit">太难</button>
+        <button class="button" name="rating" value="too_common" type="submit">太常见</button>
+        <button class="button" name="rating" value="video_weak" type="submit">视频资料不足</button>
+      </form>
+    </article>
+  {% else %}
+    <div class="notice">当前数据库没有足够匹配的剧目。</div>
+  {% endfor %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>剧目库</h1>
+<form class="toolbar" method="get">
+  <input name="q" value="{{ q }}" placeholder="搜索剧目名、别名、描述" style="max-width: 320px;">
+  <select name="ethnicity" style="max-width: 180px;">
+    <option value="">全部民族</option>
+    {% for item in ethnicities %}
+      <option value="{{ item.ethnicity }}" {% if item.ethnicity == ethnicity %}selected{% endif %}>{{ item.ethnicity }}</option>
+    {% endfor %}
+  </select>
+  <button class="button primary" type="submit">搜索</button>
+  <a class="button" href="{{ url_for('new_work') }}">新增</a>
+  <a class="button" href="{{ url_for('quality_dashboard') }}">资料检查</a>
+</form>
+<div class="grid">
+  {% for item in cards %}
+  <article class="card">
+    <h3><a href="{{ url_for('work_detail', work_id=item.work.id) }}">{{ item.work.title }}</a></h3>
+    <div class="meta">{{ item.work.ethnicity }} · {{ item.work.form }} · {{ item.work.gender_tendency or '不限' }}</div>
+    <div class="tags">
+      <span class="tag">{{ item.work.dance_type }}</span>
+      <span class="tag">{{ item.work.region }}</span>
+      <span class="tag">评分 {{ item.avg.review_count or 0 }} 条</span>
+      {% if item.recheck %}<span class="tag danger">需复审</span>{% endif %}
+    </div>
+    <p>{{ item.work.description }}</p>
+    <div class="meta">艺考适配 <span class="score">{{ "%.1f"|format(item.avg.exam_suitability_score or 0) }}</span> · 艺术空间 <span class="score">{{ "%.1f"|format(item.avg.creative_space_score or 0) }}</span></div>
+  </article>
+  {% else %}
+  <div class="notice">暂无匹配剧目。</div>
+  {% endfor %}
+</div>
+{% endblock %}

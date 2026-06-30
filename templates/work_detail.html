@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="split">
+  <section>
+    <div class="work-hero">
+      <div>
+        <div class="meta">剧目详情</div>
+        <h1>{{ work.title }}</h1>
+        <div class="tags">
+          <span class="tag">{{ work.ethnicity or '民族未填' }}</span>
+          <span class="tag">{{ work.region or '地域未填' }}</span>
+          <span class="tag">{{ work.dance_type or '舞种未填' }}</span>
+          <span class="tag">{{ work.form or '形式未填' }}</span>
+          <span class="tag">{{ work.gender_tendency or '不限' }}</span>
+          {% if recheck %}<span class="tag danger">评分分歧较大，需复审</span>{% endif %}
+        </div>
+      </div>
+      <div class="work-actions">
+        <a class="button" href="{{ url_for('edit_work', work_id=work.id) }}">编辑剧目</a>
+        <a class="button" href="{{ url_for('new_video', work_id=work.id) }}">新增视频</a>
+        <a class="button primary" href="{{ url_for('new_review', work_id=work.id) }}">新增评分</a>
+        <a class="button" href="{{ url_for('merge_work_page', work_id=work.id) }}">合并</a>
+        <form method="post" action="{{ url_for('delete_work', work_id=work.id) }}" style="display:inline;" data-confirm="确认删除这个剧目吗？删除后不能恢复，相关视频和专家评分也会一起删除。">
+          <button class="button" type="submit">删除</button>
+        </form>
+      </div>
+    </div>
+    <div class="panel">
+      <p>{{ work.description }}</p>
+      <table>
+        <tr><th>别名</th><td>{{ work.aliases }}</td></tr>
+        <tr><th>时长</th><td>{{ work.duration_min|duration_text }} - {{ work.duration_max|duration_text }}</td></tr>
+        <tr><th>道具</th><td>{{ work.props or '-' }}</td></tr>
+        <tr><th>音乐</th><td>{{ work.music_info or '-' }}</td></tr>
+        <tr><th>首演/出处</th><td>{{ work.premiere_info or '-' }}</td></tr>
+      </table>
+    </div>
+    <h2>视频版本</h2>
+    <div class="video-list">
+      {% for v in versions %}
+      <article class="video-item">
+        <div>
+          {% if v.thumbnail_url %}<img class="thumb" src="{{ v.thumbnail_url }}" alt="">{% else %}<span class="tag">{{ v.platform }}</span>{% endif %}
+        </div>
+        <div>
+          <strong>{{ v.title or v.url }}</strong>
+          <div class="meta">{{ v.platform }} · 质量 {{ v.quality_score }}{% if v.uploader %} · {{ v.uploader }}{% endif %}</div>
+          <div class="meta">{{ v.notes or '暂无备注' }}</div>
+        </div>
+        <div class="actions" style="margin-top:0;">
+          <a class="button primary" href="{{ url_for('video_view', version_id=v.id) }}">浏览</a>
+          <a class="button" href="{{ v.url }}" target="_blank" rel="noreferrer">跳转</a>
+        </div>
+      </article>
+      {% else %}
+      <div class="empty-state">还没有视频版本。可以点上方“新增视频”，或到“搜视频入库”页面搜索后入库。</div>
+      {% endfor %}
+    </div>
+    <h2>专家评分</h2>
+    {% for r in reviews %}
+    <article class="card">
+      <h3>{{ r.expert_name }} <span class="meta">{{ r.expert_title }}</span></h3>
+      <div class="tags">
+        <span class="tag">柔韧 {{ r.flexibility_score }}</span>
+        <span class="tag">技巧 {{ r.turn_jump_score }}</span>
+        <span class="tag">艺考 {{ r.exam_suitability_score }}</span>
+        <span class="tag">艺术空间 {{ r.creative_space_score }}</span>
+        <span class="tag">新颖度 {{ r.originality_score }}</span>
+        <span class="tag">排练 {{ r.rehearsal_weeks_min }}-{{ r.rehearsal_weeks_max }} 周</span>
+      </div>
+      <p>{{ r.summary }}</p>
+      <p><strong>优势：</strong>{{ r.strengths }}</p>
+      <p><strong>风险：</strong>{{ r.risks }}</p>
+    </article>
+    {% else %}
+    <div class="notice">暂无专家评分。</div>
+    {% endfor %}
+  </section>
+  <aside class="panel">
+    <h2>评分均值</h2>
+    <div class="metric-grid">
+      <div class="metric"><span class="meta">评分数量</span><strong>{{ avg.review_count or 0 }}</strong></div>
+      <div class="metric"><span class="meta">艺考适配</span><strong>{{ "%.1f"|format(avg.exam_suitability_score or 0) }}</strong></div>
+      <div class="metric"><span class="meta">柔韧</span><strong>{{ "%.1f"|format(avg.flexibility_score or 0) }}</strong></div>
+      <div class="metric"><span class="meta">控制</span><strong>{{ "%.1f"|format(avg.control_score or 0) }}</strong></div>
+      <div class="metric"><span class="meta">技巧</span><strong>{{ "%.1f"|format(avg.turn_jump_score or 0) }}</strong></div>
+      <div class="metric"><span class="meta">艺术空间</span><strong>{{ "%.1f"|format(avg.creative_space_score or 0) }}</strong></div>
+    </div>
+    <div class="section-band">
+      <a class="button primary" href="{{ url_for('discover_page', keyword=work.title) }}">搜索视频</a>
+      <a class="button" href="{{ url_for('recommend_page') }}">进入推荐</a>
+    </div>
+  </aside>
+</div>
+{% endblock %}

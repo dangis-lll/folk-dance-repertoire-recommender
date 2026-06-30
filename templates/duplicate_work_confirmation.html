@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>可能已有这个剧目</h1>
+<div class="notice">系统发现剧目库里已有名称或别名很接近的记录。请先确认是不是同一个剧目，避免重复建库。</div>
+<section class="panel">
+  <h2>你刚填写的剧目</h2>
+  <table>
+    <tr><th>剧目名</th><td>{{ preserved.title }}</td></tr>
+    <tr><th>别名</th><td>{{ preserved.aliases or '-' }}</td></tr>
+    <tr><th>民族/形式</th><td>{{ preserved.ethnicity or '-' }} / {{ preserved.form or '-' }}</td></tr>
+  </table>
+</section>
+<h2>库里可能已有</h2>
+<table>
+  <tr><th>剧目</th><th>民族/形式</th><th>描述</th><th>操作</th></tr>
+  {% for item in duplicates %}
+    <tr>
+      <td>{{ item.title }}</td>
+      <td>{{ item.ethnicity or '-' }} / {{ item.form or '-' }}</td>
+      <td>{{ item.description or '-' }}</td>
+      <td><a class="button" href="{{ url_for('work_detail', work_id=item.id) }}">查看已有剧目</a></td>
+    </tr>
+  {% endfor %}
+</table>
+<form method="post" action="{{ action }}" class="panel" style="margin-top: 16px;" data-confirm="确认这不是重复剧目，要继续新建吗？">
+  {% for name, value in preserved.items() %}
+    <input type="hidden" name="{{ name }}" value="{{ value }}">
+  {% endfor %}
+  <input type="hidden" name="force_create" value="1">
+  <div class="actions">
+    <button class="button primary" type="submit">仍然新建</button>
+    <a class="button" href="{{ url_for('new_work') }}">返回修改</a>
+  </div>
+</form>
+{% endblock %}

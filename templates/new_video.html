@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>新增视频版本：{{ work.title }}</h1>
+<form class="panel" method="post">
+  <div class="form-grid">
+    <label>平台<input name="platform" placeholder="B站 / YouTube / 抖音 / 小红书"></label>
+    <label class="wide">链接<input name="url" required></label>
+    <label class="wide">视频标题<input name="title"></label>
+    <label>上传者<input name="uploader"></label>
+    <label>表演者<input name="performer"></label>
+    <label>机构<input name="institution"></label>
+    <label>活动/比赛<input name="event_name"></label>
+    <label>发布时间<input name="publish_date" type="date"></label>
+    <label>时长秒数<input name="duration_seconds" type="number"></label>
+    <label>质量评分<input name="quality_score" type="number" min="1" max="5" value="3"></label>
+    <label class="wide">缩略图 URL<input name="thumbnail_url"></label>
+    <label class="wide">截图 URL<input name="screenshot_url"></label>
+    <label><input name="is_full_version" type="checkbox" value="1"> 完整版本</label>
+    <label><input name="is_teaching_version" type="checkbox" value="1"> 教学版本</label>
+    <label class="wide">备注<textarea name="notes"></textarea></label>
+  </div>
+  <div class="actions">
+    <button class="button primary" type="submit">保存</button>
+    <a class="button" href="{{ url_for('work_detail', work_id=work.id) }}">返回</a>
+  </div>
+</form>
+{% endblock %}

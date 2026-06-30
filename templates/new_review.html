@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% macro rating_scale(name, label, help_text='') %}
+<fieldset class="rating-field">
+  <legend>{{ label }}</legend>
+  {% if help_text %}<div class="rating-help">{{ help_text }}</div>{% endif %}
+  <div class="rating-scale" role="radiogroup" aria-label="{{ label }}">
+    {% for value in range(1, 6) %}
+      <input id="{{ name }}_{{ value }}" name="{{ name }}" type="radio" value="{{ value }}" {% if value == 3 %}checked{% endif %}>
+      <label for="{{ name }}_{{ value }}" class="rating-option rating-option-{{ value }}">
+        <span>{{ value }}</span>
+      </label>
+    {% endfor %}
+  </div>
+  <div class="rating-caption"><span>低</span><span>高</span></div>
+</fieldset>
+{% endmacro %}
+{% block content %}
+<h1>新增专家评分：{{ work.title }}</h1>
+<form class="panel" method="post">
+  <div class="form-grid">
+    <label>专家
+      <select name="expert_id" required>
+        {% for e in experts %}<option value="{{ e.id }}">{{ e.name }} · {{ e.title }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>关联视频版本
+      <select name="version_id">
+        <option value="">只评价剧目整体</option>
+        {% for v in versions %}<option value="{{ v.id }}">{{ v.platform }} · {{ v.title }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>能力层级<input name="suitable_level" value="中级"></label>
+  </div>
+  <h2>核心评分</h2>
+  <div class="notice">评分统一为 1-5：1 表示要求低、容易或不适合；5 表示要求高、困难或非常适合。排练周期、建议舞龄和年龄单独填写实际数字。</div>
+  <div class="form-grid">
+    {% for name, label, help_text in core_number_fields %}
+      <label>{{ label }}
+        <input name="{{ name }}" type="number" min="0" step="1" value="{{ 8 if name.endswith('min') else 12 }}">
+        <span class="field-help">{{ help_text }}</span>
+      </label>
+    {% endfor %}
+    {% for name, label, help_text in core_rating_fields %}
+      {{ rating_scale(name, label, help_text) }}
+    {% endfor %}
+    <label>是否需要专业教师指导
+      <select name="needs_professional_teacher">
+        <option value="1" selected>是，建议专业教师把控</option>
+        <option value="0">否，普通教学也可处理</option>
+      </select>
+    </label>
+  </div>
+  <details style="margin-top: 18px;">
+    <summary class="button">展开扩展评分</summary>
+    {% for group, fields in rating_groups %}
+      <h2>{{ group }}</h2>
+      <div class="form-grid">
+        {% for name, label, help_text in fields %}
+          {{ rating_scale(name, label, help_text) }}
+        {% endfor %}
+      </div>
+    {% endfor %}
+    {% for group, fields in extra_number_groups %}
+      <h2>{{ group }}的数字项</h2>
+      <div class="form-grid">
+        {% for name, label, help_text in fields %}
+          <label>{{ label }}
+            <input name="{{ name }}" type="number" min="0" step="0.5" value="{{ 2 if name == 'suggested_experience_years' else (14 if name.endswith('min') else 22) }}">
+            <span class="field-help">{{ help_text }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    {% endfor %}
+  </details>
+  <h2>专业评语</h2>
+  <div class="form-grid">
+    <label class="wide">摘要<textarea name="summary"></textarea></label>
+    <label class="wide">优势<textarea name="strengths"></textarea></label>
+    <label class="wide">风险<textarea name="risks"></textarea></label>
+    <label class="wide">推荐建议<textarea name="recommendation_note"></textarea></label>
+  </div>
+  <div class="actions">
+    <button class="button primary" type="submit">提交评分</button>
+    <a class="button" href="{{ url_for('work_detail', work_id=work.id) }}">返回</a>
+  </div>
+</form>
+{% endblock %}

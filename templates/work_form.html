@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ '编辑剧目' if work else '新增剧目' }}</h1>
+<form class="panel" method="post" action="{{ action }}">
+  <div class="form-grid">
+    <label>剧目名<input name="title" required value="{{ work.title if work else '' }}"></label>
+    <label>别名<input name="aliases" value="{{ work.aliases if work else '' }}" placeholder="逗号分隔"></label>
+    <label>民族<input name="ethnicity" value="{{ work.ethnicity if work else '' }}"></label>
+    <label>地域<input name="region" value="{{ work.region if work else '' }}"></label>
+    <label>舞种<input name="dance_type" value="{{ work.dance_type if work else '民族民间舞' }}"></label>
+    <label>形式<input name="form" value="{{ work.form if work else '独舞' }}"></label>
+    <label>性别倾向<input name="gender_tendency" value="{{ work.gender_tendency if work else '' }}"></label>
+    <label>最短时长（分钟）
+      <input name="duration_min" type="number" step="0.5" min="0" value="{{ work.duration_min if work else '' }}" placeholder="例如 3.5 = 3分30秒">
+    </label>
+    <label>最长时长（分钟）
+      <input name="duration_max" type="number" step="0.5" min="0" value="{{ work.duration_max if work else '' }}" placeholder="例如 5 = 5分钟">
+    </label>
+    <label>道具<input name="props" value="{{ work.props if work else '' }}"></label>
+    <label class="wide">音乐信息<input name="music_info" value="{{ work.music_info if work else '' }}"></label>
+    <label class="wide">首演/出处<input name="premiere_info" value="{{ work.premiere_info if work else '' }}"></label>
+    <label class="wide">描述<textarea name="description">{{ work.description if work else '' }}</textarea></label>
+  </div>
+  <div class="actions">
+    <button class="button primary" type="submit">保存</button>
+    <a class="button" href="{{ url_for('works') }}">返回</a>
+  </div>
+</form>
+{% endblock %}

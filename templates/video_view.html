@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="work-hero">
+  <div>
+    <div class="meta">视频浏览</div>
+    <h1>{{ version.work_title }}</h1>
+  </div>
+  <div class="work-actions">
+    <a class="button" href="{{ url_for('work_detail', work_id=version.work_id) }}">返回剧目</a>
+    <a class="button primary" href="{{ version.url }}" target="_blank" rel="noreferrer">原平台打开</a>
+  </div>
+</div>
+{% if embed_url %}
+  <div class="video-frame large">
+    <iframe src="{{ embed_url }}" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  </div>
+{% else %}
+  <div class="notice">该平台暂不提供稳定内嵌预览。建议点击“原平台打开”查看。</div>
+{% endif %}
+<section class="panel" style="max-width: 1120px; margin: 0 auto;">
+  <h2>{{ version.title or version.url }}</h2>
+  <table>
+    <tr><th>平台</th><td>{{ version.platform }}</td></tr>
+    <tr><th>上传者</th><td>{{ version.uploader or '-' }}</td></tr>
+    <tr><th>表演者</th><td>{{ version.performer or '-' }}</td></tr>
+    <tr><th>机构</th><td>{{ version.institution or '-' }}</td></tr>
+    <tr><th>活动</th><td>{{ version.event_name or '-' }}</td></tr>
+    <tr><th>质量评分</th><td>{{ version.quality_score }}</td></tr>
+    <tr><th>备注</th><td>{{ version.notes or '-' }}</td></tr>
+  </table>
+</section>
+{% endblock %}

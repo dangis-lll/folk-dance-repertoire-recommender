@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ '搜视频入库' if internal_mode else '添加视频' }}</h1>
+<div class="notice">{% if internal_mode %}这里可以先从 B站搜索视频。搜索结果不会自动保存，只有点“入库”后，才会保存到剧目库。{% else %}这里不提供自动搜索。请先在视频平台找到确认过的视频，再把链接粘贴进来。{% endif %}</div>
+{% if message %}<div class="notice">{{ message }}</div>{% endif %}
+<div class="discover-layout">
+  <aside class="sticky-panel">
+    {% if internal_mode %}
+    <section class="panel">
+      <h2>B站搜索</h2>
+      <form method="post" class="toolbar">
+        <input type="hidden" name="action" value="search">
+        <input name="keyword" value="{{ keyword }}" placeholder="例如：藏族舞 心迹 女子独舞 艺考">
+        <button class="button primary" type="submit">搜索</button>
+      </form>
+      {% if search_links %}
+        <div class="toolbar">
+          {% for name, link in search_links %}
+            <a class="button" href="{{ link }}" target="_blank" rel="noreferrer">{{ name }}</a>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+    {% endif %}
+    <section class="panel">
+      <h2>手动添加视频</h2>
+      <form method="post" action="{{ url_for('ingest_discovered_video') }}">
+        <input type="hidden" name="source_keyword" value="{{ keyword }}">
+        <div class="form-grid">
+          <label class="wide">搜索词/备注<input name="source_keyword" value="{{ keyword }}"></label>
+          <label>平台<input name="platform" placeholder="留空则自动识别"></label>
+          <label class="wide">链接<input name="url" required></label>
+          <label class="wide">标题<input name="title"></label>
+          <label>上传者<input name="uploader"></label>
+          <label class="wide">缩略图 URL<input name="thumbnail_url"></label>
+          <label class="wide">这个视频属于哪个剧目
+            <select name="work_id">
+              <option value="">选择已有剧目，或填写新剧目</option>
+              {% for w in works %}<option value="{{ w.id }}">{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>新剧目名<input name="new_title"></label>
+          <label>民族<input name="new_ethnicity"></label>
+          <label>形式<input name="new_form" value="独舞"></label>
+          <label class="wide">备注<textarea name="notes"></textarea></label>
+        </div>
+        <div class="actions"><button class="button primary" type="submit">确认入库</button></div>
+      </form>
+    </section>
+  </aside>
+  <section>
+    <h2>搜索结果</h2>
+    {% if internal_mode %}
+      <div class="result-list">
+      {% for c in search_results %}
+        <article class="card result-card">
+          <div>
+            {% if c.embed_url %}
+              <div class="video-frame"><iframe src="{{ c.embed_url }}" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+            {% elif c.thumbnail_url %}
+              <img class="thumb" src="{{ c.thumbnail_url }}" alt="" style="width: 100%;">
+            {% else %}
+              <div class="empty-state">这个结果没有可嵌入预览，可以点“原平台”查看。</div>
+            {% endif %}
+          </div>
+          <div class="result-side">
+            <div>
+              <div class="tags">
+                <span class="tag">{{ c.platform }}</span>
+                {% if c.duplicate %}<span class="tag danger">已入库：{{ c.duplicate.work_title }}</span>{% else %}<span class="tag">还没入库</span>{% endif %}
+                {% if c.is_dance_video %}<span class="tag">像舞蹈视频</span>{% else %}<span class="tag danger">待确认</span>{% endif %}
+              </div>
+              <h3>{{ c.title or c.url }}</h3>
+              <div class="meta">{{ c.uploader or '-' }}{% if c.platform_video_id %} · 识别码 {{ c.platform_video_id }}{% endif %} · 判断把握 {{ "%.0f"|format((c.dance_confidence or 0) * 100) }}%</div>
+              <div class="meta">{{ c.dance_reason or '-' }}</div>
+              <div class="actions"><a class="button" href="{{ c.url }}" target="_blank" rel="noreferrer">原平台</a></div>
+            </div>
+            <div>
+              <div class="meta">可能对应的剧目</div>
+              <div class="tags">
+                {% for w in c.possible_works %}
+                  <span class="tag">{{ w.title }} · {{ w.match_reason }}</span>
+                {% else %}
+                  <span class="tag">未匹配</span>
+                {% endfor %}
+              </div>
+            </div>
+            <form method="post" action="{{ url_for('ingest_discovered_video') }}" class="inline-form">
+              <input type="hidden" name="source_keyword" value="{{ keyword }}">
+              <input type="hidden" name="platform" value="{{ c.platform }}">
+              <input type="hidden" name="url" value="{{ c.url }}">
+              <input type="hidden" name="title" value="{{ c.title }}">
+              <input type="hidden" name="uploader" value="{{ c.uploader }}">
+              <input type="hidden" name="publish_date" value="{{ c.publish_date }}">
+              <input type="hidden" name="thumbnail_url" value="{{ c.thumbnail_url }}">
+              <label>入库到剧目
+                <select name="work_id">
+                  <option value="">选择已有剧目，或新建</option>
+                  {% for w in c.possible_works %}
+                    <option value="{{ w.id }}">{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>
+                  {% endfor %}
+                  {% for w in works %}
+                    <option value="{{ w.id }}">{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <input name="new_title" placeholder="新剧目名">
+              <div class="two-column-inline">
+                <input name="new_ethnicity" placeholder="民族">
+                <input name="new_form" placeholder="形式" value="独舞">
+              </div>
+              <input name="new_aliases" placeholder="别名，可选">
+              <button class="button secondary" type="submit" {% if c.duplicate %}disabled{% endif %}>确认入库</button>
+            </form>
+          </div>
+        </article>
+      {% else %}
+        <div class="empty-state">输入关键词后，这里会显示临时搜索结果。每条结果都可以直接预览、选择剧目并入库。</div>
+      {% endfor %}
+      </div>
+    {% else %}
+      <div class="notice">当前为机构模式，不显示自动搜索。</div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
