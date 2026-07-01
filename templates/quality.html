@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>资料检查</h1>
+<div class="toolbar">
+  <a class="button primary" href="{{ url_for('export_database') }}">导出数据库 DB</a>
+</div>
 <div class="grid">
   <div class="card"><h3>剧目</h3><div class="score">{{ totals.works }}</div></div>
   <div class="card"><h3>视频版本</h3><div class="score">{{ totals.videos }}</div></div>

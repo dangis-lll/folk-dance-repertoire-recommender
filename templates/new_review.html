@@ -18,10 +18,9 @@
 <h1>新增专家评分：{{ work.title }}</h1>
 <form class="panel" method="post">
   <div class="form-grid">
-    <label>专家
-      <select name="expert_id" required>
-        {% for e in experts %}<option value="{{ e.id }}">{{ e.name }} · {{ e.title }}</option>{% endfor %}
-      </select>
+    <label>标注人
+      <input value="{{ expert.name if expert else '默认标注人' }}" disabled>
+      <span class="field-help">当前为单人快速建库模式，不需要选择专家 ID。</span>
     </label>
     <label>关联视频版本
       <select name="version_id">

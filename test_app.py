@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import tempfile
 import unittest
 import uuid
@@ -7,6 +8,7 @@ from unittest.mock import Mock, patch
 from app import (
     app,
     bilibili_result_to_candidate,
+    build_video_search_keyword,
     canonicalize_video_url,
     classify_dance_video,
     embed_url_for,
@@ -17,6 +19,7 @@ from app import (
     parse_user_query,
     query_one,
     search_bilibili_candidates,
+    score_video_work_match,
 )
 
 
@@ -58,6 +61,7 @@ class DanceRepertoireAppTest(unittest.TestCase):
         self.assertEqual(self.client.get("/discover").status_code, 200)
         self.assertEqual(self.client.get("/quality").status_code, 200)
         self.assertIn('href="/works"', self.client.get("/works").data.decode("utf-8"))
+        self.assertIn("data-work-select-filter", self.client.get("/discover").data.decode("utf-8"))
 
     def test_title_and_video_normalization(self):
         self.assertEqual(normalize_title("藏族舞《心迹》女子独舞完整版"), "心迹")
@@ -198,12 +202,58 @@ class DanceRepertoireAppTest(unittest.TestCase):
         data = response.get_json()
         self.assertIn("intent", data)
         self.assertIn("recommendations", data)
+        self.assertIn("missingFields", data)
+        self.assertIn("directMatches", data)
         self.assertGreaterEqual(len(data["recommendations"]), 1)
         self.assertIn("logId", data)
         self.assertIn("dimensions", data["recommendations"][0])
         self.assertIn("retrieval_fit", data["recommendations"][0]["dimensions"])
         log = query_one("SELECT * FROM recommendation_log ORDER BY created_at DESC LIMIT 1")
         self.assertTrue(log["recommended_items_json"])
+
+    def test_recommend_page_can_lookup_work_by_title(self):
+        response = self.client.post("/recommend", data={"user_query": "心迹"})
+        self.assertEqual(response.status_code, 200)
+        page = response.data.decode("utf-8")
+        self.assertIn("数据库中找到的剧目", page)
+        self.assertIn("心迹", page)
+        self.assertIn("缺少这些选剧条件", page)
+        self.assertIn("搜索/更新视频资料", page)
+        self.assertIn("/discover?work_id=", page)
+
+        api_response = self.client.post("/api/recommend", json={"query": "心迹"})
+        data = api_response.get_json()
+        self.assertGreaterEqual(len(data["directMatches"]), 1)
+        self.assertEqual(data["directMatches"][0]["work"]["title"], "心迹")
+        self.assertIn("age", data["intent"])
+        self.assertIn("年龄", data["missingFields"])
+
+    def test_deepseek_unknown_does_not_override_rule_parse(self):
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"ethnicity":"unknown","form":"unknown","goal":"exam"}',
+                    }
+                }
+            ]
+        }
+        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), patch("app.requests.post", return_value=fake_response):
+            intent = parse_user_query("18岁女生，藏族独舞，参加艺考")
+        self.assertEqual(intent["ethnicity"], "藏族")
+        self.assertEqual(intent["form"], "独舞")
+        self.assertEqual(intent["goal"], "exam")
+
+    def test_recommend_api_handles_work_without_reviews(self):
+        title = f"藏族冷门独舞测试 {uuid.uuid4().hex[:8]}"
+        self.client.post(
+            "/works/new",
+            data={"title": title, "ethnicity": "藏族", "form": "独舞", "dance_type": "民族民间舞"},
+        )
+        response = self.client.post("/api/recommend", json={"query": "藏族 独舞 艺考"})
+        self.assertEqual(response.status_code, 200)
 
     def test_search_index_and_feedback_loop(self):
         indexed = query_one("SELECT COUNT(*) AS c FROM work_search_fts")["c"]
@@ -281,6 +331,74 @@ class DanceRepertoireAppTest(unittest.TestCase):
         is_dance, _confidence, _reason = classify_dance_video("game", "game commentary episode", "")
         self.assertFalse(is_dance)
 
+    def test_video_search_keyword_uses_work_context(self):
+        work = query_one("SELECT * FROM dance_work WHERE title = ?", ("心迹",))
+        keyword = build_video_search_keyword(work)
+        self.assertIn("藏族舞", keyword)
+        self.assertIn("心迹", keyword)
+        self.assertIn("女子独舞", keyword)
+        self.assertIn("剧目", keyword)
+
+        match_score, _reason = score_video_work_match(
+            work,
+            {"title": "藏族舞《心迹》女子独舞完整版", "uploader": "dance teacher"},
+            keyword,
+        )
+        unrelated_score, _reason = score_video_work_match(
+            work,
+            {"title": "心迹 原创歌曲 MV", "uploader": "music"},
+            "心迹",
+        )
+        self.assertGreater(match_score, unrelated_score)
+
+    def test_discover_with_work_context_sorts_current_work_first(self):
+        work = query_one("SELECT * FROM dance_work WHERE title = ?", ("心迹",))
+        payload = {
+            "code": 0,
+            "data": {
+                "result": [
+                    {
+                        "bvid": "BVSONG000001",
+                        "title": "心迹 原创歌曲 MV",
+                        "author": "music",
+                    },
+                    {
+                        "bvid": "BVDANCE00001",
+                        "title": "藏族舞《心迹》女子独舞完整版 剧目",
+                        "author": "dance teacher",
+                    },
+                ]
+            },
+        }
+        with patch("app.load_bilibili_search_json", return_value=(payload, "")):
+            response = self.client.post(
+                "/discover",
+                data={"action": "search", "work_id": work["id"], "keyword": build_video_search_keyword(work)},
+            )
+        page = response.data.decode("utf-8")
+        self.assertLess(page.index("BVDANCE00001"), page.index("BVSONG000001"))
+        self.assertIn("当前剧目", page)
+
+    def test_discover_from_work_page_runs_search_automatically(self):
+        work = query_one("SELECT * FROM dance_work WHERE title = ?", ("草原上的额吉",))
+        payload = {
+            "code": 0,
+            "data": {
+                "result": [
+                    {
+                        "bvid": "BVEJIDANCE01",
+                        "title": "蒙古族舞《草原上的额吉》女子独舞完整版",
+                        "author": "dance teacher",
+                    }
+                ]
+            },
+        }
+        with patch("app.load_bilibili_search_json", return_value=(payload, "")):
+            response = self.client.get(f"/discover?work_id={work['id']}")
+        page = response.data.decode("utf-8")
+        self.assertIn("BVEJIDANCE01", page)
+        self.assertIn("蒙古族舞 草原上的额吉 女子独舞", page)
+
     def test_body_condition_parser_and_teacher_label(self):
         intent = parse_user_query("18岁女生，软度中等，力量一般，控制弱，协调性弱，耐力好，技巧偏弱")
         self.assertEqual(intent["flexibilityLevel"], "medium")
@@ -324,6 +442,34 @@ class DanceRepertoireAppTest(unittest.TestCase):
         self.assertEqual(row["flexibility_score"], 5)
         self.assertEqual(row["strength_score"], 1)
         self.assertEqual(row["control_score"], 4)
+
+    def test_single_annotator_review_does_not_require_expert_id(self):
+        work = query_one("SELECT * FROM dance_work LIMIT 1")
+        response = self.client.post(
+            f"/works/{work['id']}/reviews/new",
+            data={
+                "flexibility_score": "4",
+                "summary": "单人标注测试",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        row = query_one(
+            "SELECT summary, expert_id FROM expert_review WHERE work_id = ? AND summary = ? LIMIT 1",
+            (work["id"], "单人标注测试"),
+        )
+        self.assertIsNotNone(row)
+        self.assertTrue(row["expert_id"])
+
+    def test_export_database_downloads_sqlite_file(self):
+        response = self.client.get("/export/db")
+        try:
+            self.assertEqual(response.status_code, 200)
+            disposition = response.headers.get("Content-Disposition", "")
+            self.assertIn("attachment", disposition)
+            self.assertIn(".db", disposition)
+            self.assertTrue(response.data.startswith(b"SQLite format 3"))
+        finally:
+            response.close()
 
 
 if __name__ == "__main__":

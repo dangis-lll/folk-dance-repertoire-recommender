@@ -10,6 +10,7 @@
       <h2>B站搜索</h2>
       <form method="post" class="toolbar">
         <input type="hidden" name="action" value="search">
+        {% if selected_work %}<input type="hidden" name="work_id" value="{{ selected_work.id }}">{% endif %}
         <input name="keyword" value="{{ keyword }}" placeholder="例如：藏族舞 心迹 女子独舞 艺考">
         <button class="button primary" type="submit">搜索</button>
       </form>
@@ -33,11 +34,13 @@
           <label class="wide">标题<input name="title"></label>
           <label>上传者<input name="uploader"></label>
           <label class="wide">缩略图 URL<input name="thumbnail_url"></label>
-          <label class="wide">这个视频属于哪个剧目
-            <select name="work_id">
+          <label class="wide work-select-field">这个视频属于哪个剧目
+            <input data-work-select-filter placeholder="输入剧目名、民族或形式来筛选">
+            <select name="work_id" data-empty-label="选择已有剧目，或填写新剧目">
               <option value="">选择已有剧目，或填写新剧目</option>
-              {% for w in works %}<option value="{{ w.id }}">{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>{% endfor %}
+              {% for w in works %}<option value="{{ w.id }}" {% if selected_work and selected_work.id == w.id %}selected{% endif %}>{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>{% endfor %}
             </select>
+            <span class="field-help" data-work-select-count></span>
           </label>
           <label>新剧目名<input name="new_title"></label>
           <label>民族<input name="new_ethnicity"></label>
@@ -69,10 +72,12 @@
                 <span class="tag">{{ c.platform }}</span>
                 {% if c.duplicate %}<span class="tag danger">已入库：{{ c.duplicate.work_title }}</span>{% else %}<span class="tag">还没入库</span>{% endif %}
                 {% if c.is_dance_video %}<span class="tag">像舞蹈视频</span>{% else %}<span class="tag danger">待确认</span>{% endif %}
+                {% if selected_work and c.work_match_confidence >= 0.55 %}<span class="tag">像当前剧目</span>{% elif selected_work %}<span class="tag danger">剧目匹配弱</span>{% endif %}
               </div>
               <h3>{{ c.title or c.url }}</h3>
-              <div class="meta">{{ c.uploader or '-' }}{% if c.platform_video_id %} · 识别码 {{ c.platform_video_id }}{% endif %} · 判断把握 {{ "%.0f"|format((c.dance_confidence or 0) * 100) }}%</div>
+              <div class="meta">{{ c.uploader or '-' }}{% if c.platform_video_id %} · 识别码 {{ c.platform_video_id }}{% endif %} · 舞蹈相关 {{ "%.0f"|format((c.dance_confidence or 0) * 100) }}%{% if selected_work %} · 当前剧目 {{ "%.0f"|format((c.work_match_confidence or 0) * 100) }}%{% endif %}</div>
               <div class="meta">{{ c.dance_reason or '-' }}</div>
+              {% if selected_work %}<div class="meta">{{ c.work_match_reason or '-' }}</div>{% endif %}
               <div class="actions"><a class="button" href="{{ c.url }}" target="_blank" rel="noreferrer">原平台</a></div>
             </div>
             <div>
@@ -93,16 +98,20 @@
               <input type="hidden" name="uploader" value="{{ c.uploader }}">
               <input type="hidden" name="publish_date" value="{{ c.publish_date }}">
               <input type="hidden" name="thumbnail_url" value="{{ c.thumbnail_url }}">
-              <label>入库到剧目
-                <select name="work_id">
+              <label class="work-select-field">入库到剧目
+                <input data-work-select-filter placeholder="输入剧目名、民族或形式来筛选">
+                <select name="work_id" data-empty-label="选择已有剧目，或新建">
                   <option value="">选择已有剧目，或新建</option>
                   {% for w in c.possible_works %}
-                    <option value="{{ w.id }}">{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>
+                    <option value="{{ w.id }}" {% if selected_work and selected_work.id == w.id %}selected{% endif %}>{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>
                   {% endfor %}
                   {% for w in works %}
-                    <option value="{{ w.id }}">{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>
+                    {% if w.id not in c.possible_work_ids %}
+                      <option value="{{ w.id }}" {% if selected_work and selected_work.id == w.id %}selected{% endif %}>{{ w.title }} · {{ w.ethnicity }} · {{ w.form }}</option>
+                    {% endif %}
                   {% endfor %}
                 </select>
+                <span class="field-help" data-work-select-count></span>
               </label>
               <input name="new_title" placeholder="新剧目名">
               <div class="two-column-inline">

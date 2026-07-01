@@ -87,7 +87,7 @@
       <div class="metric"><span class="meta">艺术空间</span><strong>{{ "%.1f"|format(avg.creative_space_score or 0) }}</strong></div>
     </div>
     <div class="section-band">
-      <a class="button primary" href="{{ url_for('discover_page', keyword=work.title) }}">搜索视频</a>
+      <a class="button primary" href="{{ url_for('discover_page', work_id=work.id) }}">搜索视频</a>
       <a class="button" href="{{ url_for('recommend_page') }}">进入推荐</a>
     </div>
   </aside>

@@ -12,7 +12,8 @@ from pathlib import Path
 from urllib.parse import quote_plus, urlencode
 
 import requests
-from flask import Flask, g, jsonify, redirect, render_template, request, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, send_file, url_for
+from markupsafe import Markup
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -698,6 +699,95 @@ def find_possible_works(title, limit=5):
     return candidates
 
 
+def find_work_matches_for_query(query, limit=6):
+    normalized = normalize_title(query)
+    terms = re.findall(r"[\u4e00-\u9fffA-Za-z0-9_]{2,}", query or "")
+    matches = []
+    seen = set()
+
+    def add_rows(rows, reason, score):
+        for row in rows:
+            if row["id"] in seen:
+                continue
+            item = dict(row)
+            item["match_reason"] = reason
+            item["match_score"] = score
+            matches.append(item)
+            seen.add(row["id"])
+            if len(matches) >= limit:
+                break
+
+    if normalized:
+        add_rows(
+            query_all(
+                """
+                SELECT DISTINCT w.*
+                FROM dance_work w
+                LEFT JOIN dance_work_alias a ON a.work_id = w.id
+                WHERE w.normalized_title = ? OR a.normalized_alias = ?
+                ORDER BY w.updated_at DESC
+                LIMIT ?
+                """,
+                (normalized, normalized, limit),
+            ),
+            "剧目名/别名精确匹配",
+            1.0,
+        )
+    if len(matches) < limit and normalized:
+        add_rows(
+            query_all(
+                """
+                SELECT DISTINCT w.*
+                FROM dance_work w
+                LEFT JOIN dance_work_alias a ON a.work_id = w.id
+                WHERE w.normalized_title LIKE ?
+                   OR ? LIKE '%' || w.normalized_title || '%'
+                   OR a.normalized_alias LIKE ?
+                   OR ? LIKE '%' || a.normalized_alias || '%'
+                ORDER BY w.updated_at DESC
+                LIMIT ?
+                """,
+                (f"%{normalized}%", normalized, f"%{normalized}%", normalized, limit * 2),
+            ),
+            "剧目名/别名包含匹配",
+            0.82,
+        )
+    if len(matches) < limit and terms:
+        where = " OR ".join(["title LIKE ? OR aliases LIKE ? OR description LIKE ?" for _ in terms[:4]])
+        params = []
+        for term in terms[:4]:
+            params.extend([f"%{term}%", f"%{term}%", f"%{term}%"])
+        add_rows(
+            query_all(f"SELECT * FROM dance_work WHERE {where} ORDER BY updated_at DESC LIMIT ?", params + [limit * 2]),
+            "资料文本匹配",
+            0.68,
+        )
+    return matches[:limit]
+
+
+def work_lookup_items(query, limit=6):
+    items = []
+    for work in find_work_matches_for_query(query, limit):
+        versions = decorate_video_versions(
+            query_all("SELECT * FROM dance_video_version WHERE work_id = ? ORDER BY quality_score DESC", (work["id"],))
+        )
+        summary_row = query_one(
+            "SELECT summary, strengths, risks, recommendation_note FROM expert_review WHERE work_id = ? ORDER BY created_at DESC LIMIT 1",
+            (work["id"],),
+        )
+        items.append(
+            {
+                "work": work,
+                "avg": review_averages(work["id"]),
+                "versions": versions,
+                "summary": dict(summary_row) if summary_row else {},
+                "match_reason": work["match_reason"],
+                "match_score": work["match_score"],
+            }
+        )
+    return items
+
+
 def normalized_work_names(title, aliases=""):
     names = {normalize_title(title)}
     for alias in re.split(r"[,，;；\\n]+", aliases or ""):
@@ -1023,6 +1113,18 @@ def add_review(work_id, version_id, expert_id, values):
     refresh_work_search_index(work_id)
 
 
+def default_expert_id():
+    expert = query_one("SELECT id FROM expert ORDER BY created_at, name LIMIT 1")
+    if expert:
+        return expert["id"]
+    expert_id = new_id()
+    execute(
+        "INSERT INTO expert (id, name, title, organization, bio, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (expert_id, "默认标注人", "标注人", "", "单人快速建库使用。", now()),
+    )
+    return expert_id
+
+
 def parse_int(value, default=None):
     try:
         if value in (None, ""):
@@ -1166,6 +1268,19 @@ def embed_url_for(url):
     return ""
 
 
+def decorate_video_versions(versions, limit=None):
+    decorated = []
+    primary_set = False
+    for row in list(versions)[:limit]:
+        item = dict(row)
+        item["embed_url"] = embed_url_for(item.get("url", ""))
+        item["primary_embed"] = bool(item["embed_url"] and not primary_set)
+        if item["primary_embed"]:
+            primary_set = True
+        decorated.append(item)
+    return decorated
+
+
 def classify_dance_video(keyword="", title="", uploader=""):
     text = f"{keyword} {title} {uploader}".lower()
     positive_terms = [
@@ -1203,6 +1318,121 @@ def classify_dance_video(keyword="", title="", uploader=""):
         reasons.append("搜索词本身包含舞蹈意图")
     confidence = round(max(0.0, min(1.0, score)), 2)
     return confidence >= 0.35, confidence, "；".join(reasons) or "未命中明显舞蹈词"
+
+
+def build_video_search_keyword(work):
+    if not work:
+        return ""
+    parts = []
+    ethnicity = (work["ethnicity"] or "").strip()
+    title = (work["title"] or "").strip()
+    form = (work["form"] or "").strip()
+    gender = (work["gender_tendency"] or "").strip()
+    dance_type = (work["dance_type"] or "").strip()
+    if ethnicity:
+        parts.append(f"{ethnicity}舞")
+    if title:
+        parts.append(title)
+    if gender in {"女", "女子", "女生"} and form == "独舞":
+        parts.append("女子独舞")
+    elif gender in {"男", "男子", "男生"} and form == "独舞":
+        parts.append("男子独舞")
+    elif form:
+        parts.append(form)
+    if dance_type and dance_type not in parts:
+        parts.append(dance_type)
+    parts.extend(["剧目", "完整版"])
+    seen = []
+    for part in parts:
+        if part and part not in seen:
+            seen.append(part)
+    return " ".join(seen)
+
+
+def work_name_tokens(work):
+    if not work:
+        return []
+    names = [work["title"]]
+    names.extend(alias.strip() for alias in re.split(r"[,，;；\\n]+", work["aliases"] or "") if alias.strip())
+    tokens = []
+    for name in names:
+        normalized = normalize_title(name)
+        plain = re.sub(r"\s+", "", name or "").lower()
+        for token in [normalized, plain]:
+            if token and token not in tokens:
+                tokens.append(token)
+    return tokens
+
+
+def score_video_work_match(work, candidate, keyword=""):
+    if not work or not candidate:
+        return 0.0, "未指定当前剧目"
+    text = compact_text(candidate.get("title", ""), candidate.get("uploader", ""))
+    normalized_text = normalize_title(text)
+    compacted_text = re.sub(r"\s+", "", text).lower()
+    score = 0.0
+    reasons = []
+
+    for token in work_name_tokens(work):
+        if token and (token in normalized_text or token in compacted_text):
+            score += 0.58
+            reasons.append("标题/别名命中")
+            break
+
+    ethnicity = (work["ethnicity"] or "").strip()
+    if ethnicity and ethnicity in text:
+        score += 0.18
+        reasons.append(f"民族命中：{ethnicity}")
+    elif ethnicity and f"{ethnicity}舞" in text:
+        score += 0.18
+        reasons.append(f"民族舞种命中：{ethnicity}舞")
+
+    form = (work["form"] or "").strip()
+    if form and form in text:
+        score += 0.12
+        reasons.append(f"形式命中：{form}")
+
+    if any(term in text for term in ["剧目", "完整版", "完整", "比赛", "艺考", "教学"]):
+        score += 0.08
+        reasons.append("命中剧目语境")
+
+    confidence = round(clamp(score), 2)
+    return confidence, "；".join(reasons) or "未命中当前剧目的标题、民族或形式"
+
+
+def ranked_discover_results(keyword, selected_work=None):
+    raw_results, warning = search_bilibili_candidates(keyword)
+    search_results = []
+    seen = set()
+    for item in raw_results:
+        identity = video_identity(item["url"], item["platform"])
+        key = (identity["platform"], identity["platform_video_id"] or identity["canonical_url"])
+        if key in seen:
+            continue
+        seen.add(key)
+        duplicate = find_duplicate_video(item["url"], item["platform"])
+        is_dance, confidence, reason = classify_dance_video(keyword, item["title"], item["uploader"])
+        work_match_confidence, work_match_reason = score_video_work_match(selected_work, item, keyword)
+        ranking_score = confidence * 0.45 + work_match_confidence * 0.55
+        possible_works = find_possible_works(item["title"])
+        search_results.append(
+            {
+                **item,
+                **identity,
+                "embed_url": embed_url_for(item["url"]),
+                "is_dance_video": is_dance,
+                "dance_confidence": confidence,
+                "dance_reason": reason,
+                "work_match_confidence": work_match_confidence,
+                "work_match_reason": work_match_reason,
+                "ranking_score": round(ranking_score, 3),
+                "duplicate": duplicate,
+                "possible_works": possible_works,
+                "possible_work_ids": [work["id"] for work in possible_works],
+            }
+        )
+    search_results.sort(key=lambda item: item["ranking_score"], reverse=True)
+    return search_results, warning
 
 
 def clean_bilibili_title(title):
@@ -1437,7 +1667,7 @@ def deepseek_parse_user_query(text):
         content = response.json()["choices"][0]["message"]["content"]
         parsed = json.loads(content)
         fallback = rule_parse_user_query(text)
-        fallback.update({key: value for key, value in parsed.items() if value not in (None, "", [])})
+        fallback.update({key: value for key, value in parsed.items() if value not in (None, "", [], "unknown")})
         return fallback
     except Exception:
         return None
@@ -1470,11 +1700,30 @@ def normalize_intent(intent):
     normalized = dict(intent or {})
     ethnicity = str(normalized.get("ethnicity") or "").strip().lower()
     form = str(normalized.get("form") or "").strip().lower()
+    if ethnicity in {"unknown", "none", "null", "不限", "未知"}:
+        normalized["ethnicity"] = None
+        ethnicity = ""
+    if form in {"unknown", "none", "null", "不限", "未知"}:
+        normalized["form"] = None
+        form = ""
     if ethnicity in ethnicity_map:
         normalized["ethnicity"] = ethnicity_map[ethnicity]
     if form in form_map:
         normalized["form"] = form_map[form]
     return normalized
+
+
+def intent_missing_fields(intent):
+    labels = {
+        "age": "年龄",
+        "gender": "性别",
+        "flexibilityLevel": "软度",
+        "techniqueLevel": "技巧",
+        "preparationWeeks": "准备时间",
+        "goal": "使用场景",
+        "form": "舞蹈形式",
+    }
+    return [label for key, label in labels.items() if not intent.get(key)]
 
 
 def review_averages(work_id):
@@ -1653,13 +1902,13 @@ def score_recommendation(intent, work, avg, versions):
         reasons.append(f"已有 {len(versions)} 个参考视频版本")
 
     risk_penalty = 0
-    if avg.get("music_access_difficulty", 3) >= 4:
+    if (avg.get("music_access_difficulty") or 3) >= 4:
         risk_penalty += 0.04
         risks.append("音乐获取可能偏难")
-    if avg.get("costume_access_difficulty", 3) >= 4:
+    if (avg.get("costume_access_difficulty") or 3) >= 4:
         risk_penalty += 0.04
         risks.append("服装获取可能偏难")
-    if avg.get("needs_professional_teacher", 1):
+    if avg.get("needs_professional_teacher", 1) is None or avg.get("needs_professional_teacher", 1):
         risks.append("建议由专业教师把控风格")
 
     dimensions = {
@@ -1826,6 +2075,50 @@ def generate_recommendation_text(user_query, intent, ranked):
         return ""
 
 
+def render_inline_markdown(text):
+    escaped = html.escape(text or "")
+    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+
+
+def render_recommendation_markdown(text):
+    if not text:
+        return Markup("")
+    blocks = []
+    list_items = []
+    paragraphs = []
+
+    def flush_list():
+        nonlocal list_items
+        if list_items:
+            blocks.append("<ol>" + "".join(f"<li>{item}</li>" for item in list_items) + "</ol>")
+            list_items = []
+
+    def flush_paragraph():
+        nonlocal paragraphs
+        if paragraphs:
+            blocks.append("<p>" + "<br>".join(paragraphs) + "</p>")
+            paragraphs = []
+
+    for raw_line in text.replace("\r\n", "\n").split("\n"):
+        line = raw_line.strip()
+        if not line:
+            flush_list()
+            flush_paragraph()
+            continue
+        ordered = re.match(r"^\d+[\.、]\s*(.+)$", line)
+        unordered = re.match(r"^[-*]\s+(.+)$", line)
+        if ordered or unordered:
+            flush_paragraph()
+            list_items.append(render_inline_markdown((ordered or unordered).group(1)))
+            continue
+        flush_list()
+        paragraphs.append(render_inline_markdown(line))
+
+    flush_list()
+    flush_paragraph()
+    return Markup("\n".join(blocks))
+
+
 def recommend(user_query):
     intent = parse_user_query(user_query)
     candidate_scores = search_candidate_work_ids(user_query, intent)
@@ -1837,7 +2130,9 @@ def recommend(user_query):
     ranked = []
     for work in works:
         avg = review_averages(work["id"])
-        versions = query_all("SELECT * FROM dance_video_version WHERE work_id = ? ORDER BY quality_score DESC", (work["id"],))
+        versions = decorate_video_versions(
+            query_all("SELECT * FROM dance_video_version WHERE work_id = ? ORDER BY quality_score DESC", (work["id"],))
+        )
         score_data = score_recommendation(intent, work, avg, versions)
         if score_data.get("filtered"):
             continue
@@ -2155,7 +2450,8 @@ def new_review(work_id):
     work = query_one("SELECT * FROM dance_work WHERE id = ?", (work_id,))
     if not work:
         return "Not found", 404
-    experts = query_all("SELECT * FROM expert ORDER BY name")
+    expert_id = default_expert_id()
+    expert = query_one("SELECT * FROM expert WHERE id = ?", (expert_id,))
     versions = query_all("SELECT * FROM dance_video_version WHERE work_id = ? ORDER BY created_at DESC", (work_id,))
     if request.method == "POST":
         values = {}
@@ -2171,7 +2467,7 @@ def new_review(work_id):
         add_review(
             work_id=work_id,
             version_id=request.form.get("version_id") or None,
-            expert_id=request.form["expert_id"],
+            expert_id=expert_id,
             values=values,
         )
         return redirect(url_for("work_detail", work_id=work_id))
@@ -2226,7 +2522,7 @@ def new_review(work_id):
         "new_review.html",
         "新增专家评分",
         work=work,
-        experts=experts,
+        expert=expert,
         versions=versions,
         core_number_fields=core_number_fields,
         core_rating_fields=core_rating_fields,
@@ -2241,12 +2537,16 @@ def recommend_page():
     result = None
     if request.method == "POST" and user_query:
         intent, ranked, llm_text, log_id = recommend(user_query)
+        lookup_items = work_lookup_items(user_query)
         result = {
             "log_id": log_id,
             "intent": intent,
             "intent_json": json.dumps(intent, ensure_ascii=False, indent=2),
+            "missing_fields": intent_missing_fields(intent),
+            "lookup_items": lookup_items,
             "ranked": ranked,
             "llm_text": llm_text,
+            "llm_html": render_recommendation_markdown(llm_text),
         }
     return render_page(
         "recommend.html",
@@ -2300,6 +2600,7 @@ def api_recommend():
     if not user_query:
         return jsonify({"error": "query_required"}), 400
     intent, ranked, llm_text, log_id = recommend(user_query)
+    lookup_items = work_lookup_items(user_query)
     items = []
     for item in ranked:
         items.append(
@@ -2314,7 +2615,29 @@ def api_recommend():
                 "versions": [dict(row) for row in item["versions"][:3]],
             }
         )
-    return jsonify({"intent": intent, "recommendations": items, "llmText": llm_text, "logId": log_id})
+    direct_matches = []
+    for item in lookup_items:
+        direct_matches.append(
+            {
+                "work": dict(item["work"]),
+                "matchReason": item["match_reason"],
+                "matchScore": item["match_score"],
+                "reviewAverages": item["avg"],
+                "expertSummary": item["summary"],
+                "versions": [dict(row) for row in item["versions"][:3]],
+            }
+        )
+    return jsonify(
+        {
+            "intent": intent,
+            "missingFields": intent_missing_fields(intent),
+            "directMatches": direct_matches,
+            "recommendations": items,
+            "llmText": llm_text,
+            "llmHtml": str(render_recommendation_markdown(llm_text)),
+            "logId": log_id,
+        }
+    )
 
 
 @app.route("/recommendation-feedback", methods=["POST"])
@@ -2342,35 +2665,22 @@ def recommendation_feedback():
 @app.route("/discover", methods=["GET", "POST"])
 def discover_page():
     keyword = request.values.get("keyword", "").strip()
+    work_id = request.values.get("work_id", "").strip()
+    selected_work = query_one("SELECT * FROM dance_work WHERE id = ?", (work_id,)) if work_id else None
+    if selected_work and not keyword:
+        keyword = build_video_search_keyword(selected_work)
     message = request.args.get("message", "")
     search_results = []
     internal_mode = app_mode() == "internal"
+    should_search = internal_mode and keyword and (
+        request.method == "GET" and selected_work or request.method == "POST" and request.form.get("action") == "search"
+    )
     if request.method == "POST" and request.form.get("action") == "search" and internal_mode:
         keyword = request.form.get("keyword", "").strip()
-        if keyword:
-            raw_results, warning = search_bilibili_candidates(keyword)
-            message = warning or f"B站搜索完成，返回 {len(raw_results)} 条结果。搜索结果不会自动入库。"
-            seen = set()
-            for item in raw_results:
-                identity = video_identity(item["url"], item["platform"])
-                key = (identity["platform"], identity["platform_video_id"] or identity["canonical_url"])
-                if key in seen:
-                    continue
-                seen.add(key)
-                duplicate = find_duplicate_video(item["url"], item["platform"])
-                is_dance, confidence, reason = classify_dance_video(keyword, item["title"], item["uploader"])
-                search_results.append(
-                    {
-                        **item,
-                        **identity,
-                        "embed_url": embed_url_for(item["url"]),
-                        "is_dance_video": is_dance,
-                        "dance_confidence": confidence,
-                        "dance_reason": reason,
-                        "duplicate": duplicate,
-                        "possible_works": find_possible_works(item["title"]),
-                    }
-                )
+        should_search = internal_mode and bool(keyword)
+    if should_search:
+        search_results, warning = ranked_discover_results(keyword, selected_work)
+        message = warning or f"B站搜索完成，返回 {len(search_results)} 条结果。搜索结果不会自动入库。"
     search_links = []
     if keyword:
         q = quote_plus(keyword)
@@ -2385,6 +2695,7 @@ def discover_page():
         "discover.html",
         "搜视频入库",
         keyword=keyword,
+        selected_work=selected_work,
         message=message,
         search_links=search_links,
         search_results=search_results,
@@ -2511,6 +2822,19 @@ def quality_dashboard():
         recheck_rows=recheck_rows,
         blank_platform_id=blank_platform_id,
     )
+
+
+@app.route("/export/db")
+def export_database():
+    db = g.pop("db", None)
+    if db is not None:
+        db.commit()
+        db.close()
+    db_path = Path(app.config.get("DB_PATH", DB_PATH))
+    if not db_path.exists():
+        return "Database not found", 404
+    filename = f"dance_repertoire_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    return send_file(db_path, as_attachment=True, download_name=filename)
 
 
 @app.route("/import", methods=["GET", "POST"])
